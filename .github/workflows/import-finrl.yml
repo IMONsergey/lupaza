@@ -55,55 +55,6 @@ jobs:
           }
           JSON
 
-          cat > .github/workflows/finrl-smoke.yml <<'YAML'
-          name: FinRL Smoke Test
-
-          on:
-            workflow_dispatch:
-            push:
-              branches: [main]
-              paths:
-                - 'src/**'
-                - 'requirements.txt'
-                - 'setup.py'
-                - '.github/workflows/finrl-smoke.yml'
-
-          jobs:
-            smoke:
-              runs-on: ubuntu-latest
-              timeout-minutes: 35
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-python@v5
-                  with:
-                    python-version: '3.11'
-                    cache: 'pip'
-                - name: Install dependencies
-                  run: |
-                    python -m pip install --upgrade pip
-                    pip install -r requirements.txt
-                    pip install -e .
-                - name: Compile Python sources
-                  run: python -m compileall -q src
-                - name: Start Streamlit and verify health
-                  env:
-                    PYTHONPATH: src
-                  run: |
-                    streamlit run src/web/app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true > /tmp/finrl-streamlit.log 2>&1 &
-                    pid=$!
-                    trap 'kill $pid || true' EXIT
-                    for i in $(seq 1 30); do
-                      if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
-                        echo
-                        echo 'FinRL Streamlit health check passed.'
-                        exit 0
-                      fi
-                      sleep 2
-                    done
-                    cat /tmp/finrl-streamlit.log
-                    exit 1
-          YAML
-
           cat > GITHUB_RUN.md <<'MD'
           # Running FinRL-X inside GitHub
 
@@ -118,7 +69,7 @@ jobs:
 
           ## GitHub Actions smoke test
 
-          The workflow `.github/workflows/finrl-smoke.yml` installs the project, compiles `src/`, starts Streamlit headlessly and checks `/_stcore/health`.
+          A separate `.github/workflows/finrl-smoke.yml` workflow is managed through the GitHub connector and verifies installation plus the Streamlit health endpoint.
 
           ## Important
 
