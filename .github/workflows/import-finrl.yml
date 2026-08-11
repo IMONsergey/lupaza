@@ -1,0 +1,164 @@
+name: Import FinRL-Trading
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-and-smoke-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+
+      - name: Clone upstream FinRL-Trading
+        run: |
+          rm -rf /tmp/finrl-trading
+          git clone --depth 1 --branch master https://github.com/AI4Finance-Foundation/FinRL-Trading.git /tmp/finrl-trading
+
+      - name: Import upstream snapshot
+        run: |
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.github/workflows' \
+            /tmp/finrl-trading/ ./
+          mkdir -p .github/workflows .devcontainer
+
+      - name: Add GitHub-native runtime configuration
+        run: |
+          cat > .devcontainer/devcontainer.json <<'JSON'
+          {
+            "name": "FinRL-X",
+            "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+            "postCreateCommand": "python -m pip install --upgrade pip && pip install -r requirements.txt && pip install -e .",
+            "forwardPorts": [8501],
+            "portsAttributes": {
+              "8501": {
+                "label": "FinRL Trading Dashboard",
+                "onAutoForward": "openBrowser"
+              }
+            },
+            "postAttachCommand": "bash -lc 'PYTHONPATH=src streamlit run src/web/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true >/tmp/finrl-streamlit.log 2>&1 &'"
+          }
+          JSON
+
+          cat > .github/workflows/finrl-smoke.yml <<'YAML'
+          name: FinRL Smoke Test
+
+          on:
+            workflow_dispatch:
+            push:
+              branches: [main]
+              paths:
+                - 'src/**'
+                - 'requirements.txt'
+                - 'setup.py'
+                - '.github/workflows/finrl-smoke.yml'
+
+          jobs:
+            smoke:
+              runs-on: ubuntu-latest
+              timeout-minutes: 35
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.11'
+                    cache: 'pip'
+                - name: Install dependencies
+                  run: |
+                    python -m pip install --upgrade pip
+                    pip install -r requirements.txt
+                    pip install -e .
+                - name: Compile Python sources
+                  run: python -m compileall -q src
+                - name: Start Streamlit and verify health
+                  env:
+                    PYTHONPATH: src
+                  run: |
+                    streamlit run src/web/app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true > /tmp/finrl-streamlit.log 2>&1 &
+                    pid=$!
+                    trap 'kill $pid || true' EXIT
+                    for i in $(seq 1 30); do
+                      if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+                        echo
+                        echo 'FinRL Streamlit health check passed.'
+                        exit 0
+                      fi
+                      sleep 2
+                    done
+                    cat /tmp/finrl-streamlit.log
+                    exit 1
+          YAML
+
+          cat > GITHUB_RUN.md <<'MD'
+          # Running FinRL-X inside GitHub
+
+          This repository mirrors `AI4Finance-Foundation/FinRL-Trading` and adds GitHub-native runtime helpers.
+
+          ## Interactive dashboard with GitHub Codespaces
+
+          1. Open **Code → Codespaces → Create codespace on main**.
+          2. Dependencies are installed automatically using Python 3.11.
+          3. The Streamlit app starts automatically on port `8501`.
+          4. GitHub forwards port 8501 and opens the FinRL Trading Dashboard in the browser.
+
+          ## GitHub Actions smoke test
+
+          The workflow `.github/workflows/finrl-smoke.yml` installs the project, compiles `src/`, starts Streamlit headlessly and checks `/_stcore/health`.
+
+          ## Important
+
+          Live/paper trading requires broker/API credentials. No secrets are committed by this import. Configure credentials only through GitHub Secrets or Codespaces Secrets.
+          MD
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Compile Python sources
+        run: python -m compileall -q src
+
+      - name: Start Streamlit and verify health
+        env:
+          PYTHONPATH: src
+        run: |
+          streamlit run src/web/app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true > /tmp/finrl-streamlit.log 2>&1 &
+          pid=$!
+          trap 'kill $pid || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              echo
+              echo 'FinRL Streamlit health check passed.'
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/finrl-streamlit.log
+          exit 1
+
+      - name: Commit imported project
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+          else
+            git commit -m 'Import FinRL-Trading and add GitHub runtime'
+            git push origin HEAD:main
+          fi
