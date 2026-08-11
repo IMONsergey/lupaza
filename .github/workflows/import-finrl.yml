@@ -3,6 +3,9 @@ name: Import FinRL-Trading
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
 
 permissions:
@@ -13,9 +16,13 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
     steps:
-      - name: Checkout target repository
+      - name: Checkout target branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
 
       - name: Clone upstream FinRL-Trading
         run: |
@@ -127,7 +134,7 @@ jobs:
             echo 'No import changes to commit.'
           else
             git commit -m 'Import FinRL-Trading and add GitHub runtime'
-            git push origin HEAD:main
+            git push origin "HEAD:${TARGET_BRANCH}"
           fi
 
       - name: Set up Python 3.11
