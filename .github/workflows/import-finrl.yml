@@ -118,6 +118,18 @@ jobs:
           Live/paper trading requires broker/API credentials. No secrets are committed by this import. Configure credentials only through GitHub Secrets or Codespaces Secrets.
           MD
 
+      - name: Commit imported project first
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No import changes to commit.'
+          else
+            git commit -m 'Import FinRL-Trading and add GitHub runtime'
+            git push origin HEAD:main
+          fi
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -150,15 +162,3 @@ jobs:
           done
           cat /tmp/finrl-streamlit.log
           exit 1
-
-      - name: Commit imported project
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if git diff --cached --quiet; then
-            echo 'No changes to commit.'
-          else
-            git commit -m 'Import FinRL-Trading and add GitHub runtime'
-            git push origin HEAD:main
-          fi
